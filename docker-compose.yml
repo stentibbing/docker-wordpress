@@ -1,9 +1,27 @@
 version: '3.1'
 
 services:
-   
+  
+  # Proxy ports to more convenient subdomains with Traefik
+
+  traefik:
+    image: traefik:latest
+    command:
+      - --log.level=INFO
+      - --api.insecure=true
+      - --entrypoints.web.address=:80
+      - --providers.docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.http.routers.dash.rule=Host(`dash.localhost`)
+      - traefik.http.routers.dash.service=api@internal
+    ports:
+      - "80:80"
+ 
   db:
     image: mysql:latest
+    container_name: mysql
     restart: always
     environment:
       MYSQL_DATABASE: wordpress_database
@@ -15,22 +33,46 @@ services:
     volumes:
       - ./db:/var/lib/mysql
 
+  # Mailhog catches mails sent via sendmail
+
   mailhog:
     image: mailhog/mailhog
     ports: 
       - 1025:1025 
       - 8025:8025
+    labels:
+      - traefik.http.routers.mailhog.rule=Host(`mail.localhost`)
+      - traefik.http.services.mailhog.loadbalancer.server.port=8025
+
+  phpmyadmin:
+    image: phpmyadmin
+    container_name: phpmyadmin
+    environment:
+     - PMA_ARBITRARY=1
+    restart: always
+    depends_on: 
+      - db
+    ports:
+     - 8080:8080
+    labels: 
+      - traefik.http.routers.phpmyadmin.rule=Host(`db.localhost`)
+    volumes:
+     - /sessions
+
+  # Custom docker file to use sendmail with mailhog
 
   wordpress:
+    container_name: wordpress
     build:
       context: ./docker
       dockerfile: dockerfile-wordpress
     restart: always
     depends_on: 
       - db
-      - mailhog
     ports:
-      - 80:80
+      - 8081:8081
+    labels: 
+      - traefik.http.routers.wordpress.rule=Host(`localhost`)
     environment:
       WORDPRESS_DB_HOST: db:3306
       WORDPRESS_DB_USER: wordpress_user
